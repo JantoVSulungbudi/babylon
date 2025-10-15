@@ -168,22 +168,25 @@
 			// Create a cylinder to represent the hole
 			const hole = BABYLON.MeshBuilder.CreateCylinder("hole", { diameter: 2, height: 2 }, scene);
 			hole.position.y = -0.5;
+			hole.position.x = -2;
 
 			// Create a square hole **********
-            const hole2 = BABYLON.MeshBuilder.CreateBox("hole", { width: 2, depth: 2, height: 2 }, scene);
-			hole2.position.y = 0.5;
+            const hole2 = BABYLON.MeshBuilder.CreateBox("sqhole", { width: 2, depth: 2, height: 2 }, scene);
+			hole2.position.y = -0.5;
+			hole2.position.x = 2;
 
 			// Perform CSG subtraction to create the hole in the ground
 			const groundCSG = BABYLON.CSG.FromMesh(ground);
 			const holeCSG = BABYLON.CSG.FromMesh(hole);
 			const hole2CSG = BABYLON.CSG.FromMesh(hole2);	// **********
-			const groundWithHoleCSG = groundCSG.subtract(holeCSG);
-			const groundWith2HoleCSG = groundWithHoleCSG.subtract(hole2CSG); // **********
-			const groundWithHole = groundWith2HoleCSG.toMesh("groundWithHole", null, scene);
+		
+			const groundWithHoleCSG = groundCSG.subtract(holeCSG).subtract(hole2CSG);
+			const groundWithHole = groundWithHoleCSG.toMesh("groundWithHole", null, scene);
 
 			// Dispose of the original meshes
 			ground.dispose();
 			hole.dispose();
+			hole2.dispose();
 
 			// Apply material to the new ground
 			groundWithHole.material = new BABYLON.StandardMaterial("groundMat", scene);
