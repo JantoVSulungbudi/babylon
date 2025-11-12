@@ -1,1 +1,151 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HoloGrip — Hand Tracking + BLE</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #0ff;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      background: rgba(0,0,0,0.6);
+      padding: 10px 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px #0ff;
+      display: flex;
+      gap: 10px;
+    }
+    button {
+      background: #0ff;
+      border: none;
+      padding: 10px 20px;
+      color: #000;
+      font-size: 1em;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    button:hover { background: #00cccc; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+</head>
+<body>
+  <video id="input_video" autoplay playsinline></video>
+  <canvas id="output_canvas"></canvas>
+  
+  <div id="controls">
+    <button id="connectBLE">🔗 Connect BLE</button>
+    <button id="toggleGesture">✋ Detect Gesture</button>
+  </div>
+
+  <script>
+    const video = document.getElementById('input_video');
+    const canvas = document.getElementById('output_canvas');
+    const ctx = canvas.getContext('2d');
+    const connectBtn = document.getElementById('connectBLE');
+    const gestureBtn = document.getElementById('toggleGesture');
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // === MediaPipe Hands Setup ===
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+    hands.onResults(onResults);
+
+    const camera = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 640, height: 480
+    });
+    camera.start();
+
+    let isGestureOn = false;
+    gestureBtn.onclick = () => { isGestureOn = !isGestureOn; };
+
+    function onResults(results) {
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        for (const landmarks of results.multiHandLandmarks) {
+          drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#0ff', lineWidth: 3});
+          drawLandmarks(ctx, landmarks, {color: '#ff0', lineWidth: 2});
+          if (isGestureOn) detectGesture(landmarks);
+        }
+      }
+      ctx.restore();
+    }
+
+    // === Gesture detection (simple pinch / open) ===
+    function detectGesture(landmarks) {
+      const thumbTip = landmarks[4];
+      const indexTip = landmarks[8];
+      const dx = thumbTip.x - indexTip.x;
+      const dy = thumbTip.y - indexTip.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      const gesture = dist < 0.05 ? '🤏 Pinch' : '🖐 Open';
+      ctx.fillStyle = '#0ff';
+      ctx.font = '32px Segoe UI';
+      ctx.fillText(gesture, 30, 50);
+
+      // send to BLE
+      if (bleCharacteristic) {
+        const cmd = gesture === '🤏 Pinch' ? 1 : 0;
+        bleCharacteristic.writeValue(Uint8Array.of(cmd));
+      }
+    }
+
+    // === Web Bluetooth ===
+    let bleDevice = null;
+    let bleCharacteristic = null;
+
+    connectBtn.onclick = async () => {
+      try {
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'RobotArm' }], // change to your device name
+          optionalServices: ['battery_service', '0000ffe0-0000-1000-8000-00805f9b34fb']
+        });
+        const server = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+        bleCharacteristic = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+        connectBtn.textContent = '✅ BLE Connected';
+      } catch (error) {
+        console.error(error);
+        connectBtn.textContent = '❌ BLE Error';
+      }
+    };
+  </script>
+</body>
+</html>
