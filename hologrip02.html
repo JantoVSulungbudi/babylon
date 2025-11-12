@@ -1,1 +1,160 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HoloGrip — AR Hand Controller</title>
+
+  <!-- Babylon.js -->
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; background:black; }
+    #renderCanvas { width:100%; height:100%; touch-action:none; }
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      padding: 10px 20px;
+      border-radius: 12px;
+      display: flex;
+      gap: 10px;
+      box-shadow: 0 0 20px #0ff;
+      z-index: 10;
+    }
+    button {
+      background: #0ff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 1em;
+      color: #000;
+      cursor: pointer;
+    }
+    button:hover { background: #00cccc; }
+  </style>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <div id="controls">
+    <button id="enterAR">🕶 Enter AR</button>
+    <button id="connectBLE">🔗 Connect BLE</button>
+  </div>
+
+  <video id="input_video" style="display:none;"></video>
+
+  <script>
+    const canvas = document.getElementById("renderCanvas");
+    const video = document.getElementById("input_video");
+
+    // === BABYLON SCENE SETUP ===
+    const engine = new BABYLON.Engine(canvas, true);
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+
+    const camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 0, -2), scene);
+    camera.setTarget(BABYLON.Vector3.Zero());
+
+    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+    // Create hand joint spheres
+    const spheres = [];
+    for (let i = 0; i < 21; i++) {
+      const sphere = BABYLON.MeshBuilder.CreateSphere(`joint${i}`, {diameter: 0.01}, scene);
+      sphere.material = new BABYLON.StandardMaterial("mat", scene);
+      sphere.material.emissiveColor = new BABYLON.Color3(0, 1, 1);
+      spheres.push(sphere);
+    }
+
+    // === MediaPipe Setup ===
+    const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+
+    hands.onResults(onResults);
+
+    const cam = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 640, height: 480
+    });
+    cam.start();
+
+    let latestLandmarks = null;
+    function onResults(results) {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        latestLandmarks = results.multiHandLandmarks[0];
+      }
+    }
+
+    // === WebXR AR Mode ===
+    let xrHelper;
+    document.getElementById("enterAR").onclick = async () => {
+      xrHelper = await scene.createDefaultXRExperienceAsync({
+        uiOptions: { sessionMode: "immersive-ar", referenceSpaceType: "local-floor" },
+        optionalFeatures: true
+      });
+    };
+
+    // === Web Bluetooth ===
+    let bleDevice = null, bleCharacteristic = null;
+    document.getElementById("connectBLE").onclick = async () => {
+      try {
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'RobotArm' }],
+          optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
+        });
+        const server = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+        bleCharacteristic = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+        document.getElementById("connectBLE").textContent = "✅ BLE Connected";
+      } catch (err) {
+        console.error(err);
+        document.getElementById("connectBLE").textContent = "❌ BLE Error";
+      }
+    };
+
+    // === Gesture + Position Logic ===
+    function handleGesture(landmarks) {
+      const thumb = landmarks[4];
+      const index = landmarks[8];
+      const dx = thumb.x - index.x;
+      const dy = thumb.y - index.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const gesture = dist < 0.05 ? "pinch" : "open";
+      if (bleCharacteristic) {
+        const cmd = gesture === "pinch" ? 1 : 0;
+        bleCharacteristic.writeValue(Uint8Array.of(cmd));
+      }
+      return gesture;
+    }
+
+    // === Update Loop ===
+    engine.runRenderLoop(() => {
+      if (latestLandmarks) {
+        const gesture = handleGesture(latestLandmarks);
+        latestLandmarks.forEach((lm, i) => {
+          spheres[i].position.x = (lm.x - 0.5) * 1.5;
+          spheres[i].position.y = (0.5 - lm.y) * 1.5;
+          spheres[i].position.z = -lm.z * 0.5;
+          spheres[i].material.emissiveColor = gesture === "pinch" ? new BABYLON.Color3(1,0,1) : new BABYLON.Color3(0,1,1);
+        });
+      }
+      scene.render();
+    });
+  </script>
+</body>
+</html>
