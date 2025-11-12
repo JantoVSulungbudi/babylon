@@ -1,1 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>VR Box Collector Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; }
+        #renderCanvas { width: 100%; height: 100%; display: block; }
+        #ui {
+            position: absolute;
+            top: 20px; left: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white; padding: 15px;
+            border-radius: 10px; z-index: 10;
+        }
+        #gameUI {
+            position: absolute; bottom: 20px;
+            width: 100%; text-align: center; z-index: 10;
+        }
+        button {
+            padding: 12px 24px; background: #4CAF50;
+            color: white; border: none; border-radius: 8px;
+            font-size: 16px; margin: 5px; cursor: pointer;
+        }
+        .progress {
+            width: 200px; height: 20px;
+            background: #333; border-radius: 10px;
+            margin: 10px auto; overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%; width: 0%;
+            background: #4CAF50; transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+
+<div id="ui">
+    <h2>🎯 Box Collector</h2>
+    <div>Boxes Collected: <span id="score">0</span>/10</div>
+    <div>Time: <span id="timer">60</span>s</div>
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+</div>
+
+<div id="gameUI">
+    <button onclick="startGame()">🚀 Start Game</button>
+    <button onclick="enterVR()">🕶️ VR Mode</button>
+</div>
+
+<script>
+let score = 0, timeLeft = 60, gameActive = false;
+let gameTimer, boxes = [], reticle;
+let xrHelper = null;
+
+const canvas = document.getElementById('renderCanvas');
+const engine = new BABYLON.Engine(canvas, true);
+const scene = new BABYLON.Scene(engine);
+
+// Basic camera
+const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.6, -5), scene);
+camera.attachControl(canvas, true);
+
+// Lighting
+const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+light.intensity = 0.9;
+
+// Create environment
+function createEnvironment() {
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:30, height:30}, scene);
+    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+    groundMat.diffuseColor = new BABYLON.Color3(0.2,0.4,0.2);
+    ground.material = groundMat;
+
+    const skybox = BABYLON.MeshBuilder.CreateBox("skybox", {size:100}, scene);
+    const skyboxMat = new BABYLON.StandardMaterial("skyboxMat", scene);
+    skyboxMat.backFaceCulling = false;
+    skyboxMat.diffuseColor = new BABYLON.Color3(0.1,0.2,0.4);
+    skybox.material = skyboxMat;
+}
+
+// Reticle (center dot)
+function createReticle() {
+    reticle = BABYLON.MeshBuilder.CreateDisc("reticle", {radius:0.02}, scene);
+    reticle.parent = camera;
+    reticle.position.z = 2;
+    const mat = new BABYLON.StandardMaterial("reticleMat", scene);
+    mat.emissiveColor = new BABYLON.Color3(1,1,1);
+    reticle.material = mat;
+}
+
+// Boxes
+function createBoxes(count=15) {
+    boxes.forEach(b => b.dispose());
+    boxes = [];
+    for (let i=0; i<count; i++) {
+        const box = BABYLON.MeshBuilder.CreateBox("box"+i, {size:0.6}, scene);
+        box.position.x = Math.random()*20 - 10;
+        box.position.z = Math.random()*20 - 10;
+        box.position.y = 1 + Math.random()*2;
+
+        const mat = new BABYLON.StandardMaterial("mat"+i, scene);
+        mat.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
+        box.material = mat;
+
+        boxes.push(box);
+    }
+}
+
+// Game logic
+function startGame() {
+    if (gameActive) return;
+    score = 0; timeLeft = 60; gameActive = true;
+    document.getElementById("score").textContent = score;
+    document.getElementById("timer").textContent = timeLeft;
+    document.getElementById("progressBar").style.width = "0%";
+    document.getElementById("gameUI").style.display = "none";
+
+    createEnvironment();
+    createReticle();
+    createBoxes();
+
+    gameTimer = setInterval((
 
