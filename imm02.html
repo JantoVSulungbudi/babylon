@@ -1,179 +1,170 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>VR Box Collector Game</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.babylonjs.com/babylon.js"></script>
-  <style>
-    html, body { width:100%; height:100%; margin:0; overflow:hidden; background:black; }
-    #renderCanvas { width:100%; height:100%; display:block; touch-action:none; }
-    #ui {
-      position:absolute; top:20px; left:20px;
-      background:rgba(0,0,0,0.7); color:white;
-      padding:10px 15px; border-radius:10px;
-      font-family:Arial; z-index:10;
-    }
-    #gameUI {
-      position:absolute; bottom:20px; width:100%;
-      text-align:center; z-index:10;
-    }
-    button {
-      padding:12px 25px; border:none; border-radius:8px;
-      background:#4CAF50; color:white; font-size:16px;
-      cursor:pointer; margin:5px;
-    }
-    .progress { width:200px; height:20px; background:#333;
-      border-radius:10px; margin:10px auto; overflow:hidden; }
-    .progress-bar { height:100%; width:0%; background:#4CAF50; transition:width 0.3s; }
-  </style>
+<meta charset="utf-8">
+<title>VR Box Collector Game</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<style>
+  html,body{width:100%;height:100%;margin:0;overflow:hidden;background:black;}
+  #renderCanvas{width:100%;height:100%;display:block;touch-action:none;}
+  #ui{position:absolute;top:20px;left:20px;background:rgba(0,0,0,.7);color:#fff;
+      padding:10px 15px;border-radius:10px;font-family:Arial;z-index:10;}
+  #gameUI{position:absolute;bottom:20px;width:100%;text-align:center;z-index:10;}
+  button{padding:12px 25px;border:none;border-radius:8px;background:#4CAF50;
+         color:white;font-size:16px;cursor:pointer;margin:5px;}
+  .progress{width:200px;height:20px;background:#333;border-radius:10px;
+            margin:10px auto;overflow:hidden;}
+  .progress-bar{height:100%;width:0%;background:#4CAF50;transition:width .3s;}
+</style>
 </head>
 <body>
-  <canvas id="renderCanvas"></canvas>
+<canvas id="renderCanvas"></canvas>
 
-  <div id="ui">
-    <h3>🎯 Box Collector</h3>
-    <div>Boxes: <span id="score">0</span>/10</div>
-    <div>Time: <span id="timer">60</span>s</div>
-    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
-  </div>
+<div id="ui">
+  <h3>🎯 Box Collector</h3>
+  <div>Boxes: <span id="score">0</span>/10</div>
+  <div>Time: <span id="timer">60</span>s</div>
+  <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+</div>
 
-  <div id="gameUI">
-    <button onclick="startGame()">🚀 Start Game</button>
-    <button onclick="enterVR()">🕶️ VR Mode</button>
-  </div>
+<div id="gameUI">
+  <button onclick="startGame()">🚀 Start Game</button>
+  <button onclick="enterVR()">🕶️ VR Mode</button>
+</div>
 
-  <script>
-    let engine, scene, camera, xrHelper;
-    let boxes = [], reticle, score = 0, timeLeft = 60, timer, gameActive = false;
+<script>
+let engine, scene, camera, xrHelper;
+let boxes=[], reticle, score=0, timeLeft=60, timer, gameActive=false;
 
-    const canvas = document.getElementById("renderCanvas");
-    engine = new BABYLON.Engine(canvas, true);
-    scene = new BABYLON.Scene(engine);
+const canvas=document.getElementById("renderCanvas");
+engine=new BABYLON.Engine(canvas,true);
+scene=new BABYLON.Scene(engine);
 
-    // Camera + light
-    camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.6, -5), scene);
-    camera.attachControl(canvas, true);
-    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
-    light.intensity = 0.9;
+// Basic light + camera
+camera=new BABYLON.UniversalCamera("camera",new BABYLON.Vector3(0,1.6,-5),scene);
+camera.attachControl(canvas,true);
+const light=new BABYLON.HemisphericLight("light",new BABYLON.Vector3(0,1,0),scene);
+light.intensity=0.9;
 
-    // Create environment
-    function createEnvironment() {
-      const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:30, height:30}, scene);
-      const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-      groundMat.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.2);
-      ground.material = groundMat;
+// ----- Environment -----
+function createEnvironment(){
+  const ground=BABYLON.MeshBuilder.CreateGround("ground",{width:30,height:30},scene);
+  const gMat=new BABYLON.StandardMaterial("gMat",scene);
+  gMat.diffuseColor=new BABYLON.Color3(0.2,0.4,0.2);
+  ground.material=gMat;
 
-      const skybox = BABYLON.MeshBuilder.CreateBox("skybox", {size:100}, scene);
-      const skyboxMat = new BABYLON.StandardMaterial("skyboxMat", scene);
-      skyboxMat.backFaceCulling = false;
-      skyboxMat.diffuseColor = new BABYLON.Color3(0.1, 0.2, 0.4);
-      skybox.material = skyboxMat;
+  const sky=BABYLON.MeshBuilder.CreateBox("sky",{size:100},scene);
+  const sMat=new BABYLON.StandardMaterial("sMat",scene);
+  sMat.backFaceCulling=false;
+  sMat.diffuseColor=new BABYLON.Color3(0.1,0.2,0.4);
+  sky.material=sMat;
+}
+
+// ----- Reticle -----
+function createReticle(parentCam){
+  if(reticle) reticle.dispose();
+  reticle=BABYLON.MeshBuilder.CreateDisc("reticle",{radius:0.02},scene);
+  reticle.parent=parentCam;
+  reticle.position.z=2;
+  const mat=new BABYLON.StandardMaterial("retMat",scene);
+  mat.emissiveColor=new BABYLON.Color3(1,1,1);
+  reticle.material=mat;
+}
+
+// ----- Boxes -----
+function createBoxes(n=15){
+  boxes.forEach(b=>b.dispose());
+  boxes=[];
+  for(let i=0;i<n;i++){
+    const box=BABYLON.MeshBuilder.CreateBox("box"+i,{size:0.6},scene);
+    box.position.x=Math.random()*20-10;
+    box.position.z=Math.random()*20-10;
+    box.position.y=1+Math.random()*2;
+    const mat=new BABYLON.StandardMaterial("mat"+i,scene);
+    mat.diffuseColor=new BABYLON.Color3(Math.random(),Math.random(),Math.random());
+    box.material=mat;
+    scene.registerBeforeRender(()=>{ if(box.isEnabled()) box.rotation.y+=0.02; });
+    boxes.push(box);
+  }
+}
+
+// ----- Game Logic -----
+function startGame(){
+  if(gameActive) return;
+  score=0; timeLeft=60; gameActive=true;
+  document.getElementById("score").textContent=score;
+  document.getElementById("timer").textContent=timeLeft;
+  document.getElementById("progressBar").style.width="0%";
+  document.getElementById("gameUI").style.display="none";
+
+  createEnvironment();
+  createReticle(camera);
+  createBoxes();
+
+  timer=setInterval(()=>{
+    timeLeft--;
+    document.getElementById("timer").textContent=timeLeft;
+    if(timeLeft<=0) endGame(false);
+  },1000);
+
+  scene.onBeforeRenderObservable.add(checkHit);
+}
+
+function checkHit(){
+  if(!gameActive) return;
+  const ray=new BABYLON.Ray(camera.position,camera.getDirection(BABYLON.Vector3.Forward()));
+  const hit=scene.pickWithRay(ray);
+  if(hit&&hit.pickedMesh&&boxes.includes(hit.pickedMesh)){
+    collectBox(hit.pickedMesh);
+  }
+}
+
+function collectBox(box){
+  if(!box.isEnabled()) return;
+  box.setEnabled(false);
+  score++;
+  document.getElementById("score").textContent=score;
+  document.getElementById("progressBar").style.width=(score*10)+"%";
+  if(score>=10) endGame(true);
+}
+
+function endGame(won){
+  clearInterval(timer);
+  gameActive=false;
+  alert(won?"🎉 You win!":"⏰ Time’s up!");
+  document.getElementById("gameUI").style.display="block";
+}
+
+// ----- Enter VR -----
+async function enterVR(){
+  try{
+    // Create helper once
+    if(!xrHelper){
+      xrHelper=await scene.createDefaultXRExperienceAsync({
+        uiOptions:{sessionMode:"immersive-vr"},
+        optionalFeatures:true
+      });
+
+      // When XR camera is ready, rebuild reticle to attach to it
+      xrHelper.baseExperience.onStateChangedObservable.add(state=>{
+        if(state===BABYLON.WebXRState.IN_XR){
+          createReticle(xrHelper.baseExperience.camera);
+        }
+      });
     }
+    await xrHelper.baseExperience.enterXRAsync("immersive-vr","local-floor");
+    document.getElementById("gameUI").innerHTML=
+      '<div style="color:white;background:rgba(0,0,0,0.6);padding:10px;border-radius:5px;">🕶️ VR Mode Active</div>';
+  }catch(err){
+    alert("VR failed:\n"+err.message);
+    console.error(err);
+  }
+}
 
-    // Reticle (center dot)
-    function createReticle() {
-      reticle = BABYLON.MeshBuilder.CreateDisc("reticle", {radius:0.02}, scene);
-      reticle.parent = camera;
-      reticle.position.z = 2;
-      const mat = new BABYLON.StandardMaterial("reticleMat", scene);
-      mat.emissiveColor = new BABYLON.Color3(1,1,1);
-      reticle.material = mat;
-    }
-
-    // Create floating boxes
-    function createBoxes(count=15) {
-      boxes.forEach(b => b.dispose());
-      boxes = [];
-      for (let i=0; i<count; i++) {
-        const box = BABYLON.MeshBuilder.CreateBox("box"+i, {size:0.6}, scene);
-        box.position.x = Math.random()*20 - 10;
-        box.position.z = Math.random()*20 - 10;
-        box.position.y = 1 + Math.random()*2;
-        const mat = new BABYLON.StandardMaterial("mat"+i, scene);
-        mat.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
-        box.material = mat;
-
-        scene.registerBeforeRender(() => {
-          if (box.isEnabled()) {
-            box.rotation.y += 0.02;
-            box.position.y += Math.sin(Date.now()*0.001 + i) * 0.002;
-          }
-        });
-
-        boxes.push(box);
-      }
-    }
-
-    // Game logic
-    function startGame() {
-      if (gameActive) return;
-      score = 0; timeLeft = 60; gameActive = true;
-      document.getElementById("score").textContent = score;
-      document.getElementById("timer").textContent = timeLeft;
-      document.getElementById("progressBar").style.width = "0%";
-      document.getElementById("gameUI").style.display = "none";
-
-      createEnvironment();
-      createReticle();
-      createBoxes();
-
-      timer = setInterval(() => {
-        timeLeft--;
-        document.getElementById("timer").textContent = timeLeft;
-        if (timeLeft <= 0) endGame(false);
-      }, 1000);
-
-      scene.onBeforeRenderObservable.add(checkHit);
-    }
-
-    // Check if reticle hits a box
-    function checkHit() {
-      if (!gameActive) return;
-      const ray = new BABYLON.Ray(camera.position, camera.getDirection(BABYLON.Vector3.Forward()));
-      const hit = scene.pickWithRay(ray);
-      if (hit && hit.pickedMesh && boxes.includes(hit.pickedMesh)) {
-        collectBox(hit.pickedMesh);
-      }
-    }
-
-    // Collect a box
-    function collectBox(box) {
-      if (!box.isEnabled()) return;
-      box.setEnabled(false);
-      score++;
-      document.getElementById("score").textContent = score;
-      document.getElementById("progressBar").style.width = (score*10) + "%";
-      if (score >= 10) endGame(true);
-    }
-
-    // End game
-    function endGame(won) {
-      clearInterval(timer);
-      gameActive = false;
-      alert(won ? "🎉 You win!" : "⏰ Time’s up!");
-      document.getElementById("gameUI").style.display = "block";
-    }
-
-    // VR mode
-    async function enterVR() {
-      try {
-        xrHelper = await scene.createDefaultXRExperienceAsync({
-          uiOptions: { sessionMode: "immersive-vr" },
-          optionalFeatures: true
-        });
-        await xrHelper.baseExperience.enterXRAsync("immersive-vr", "local-floor");
-        document.getElementById("gameUI").innerHTML =
-          '<div style="color:white;background:rgba(0,0,0,0.6);padding:10px;border-radius:5px;">🕶️ VR Mode Active</div>';
-      } catch (err) {
-        alert("⚠️ VR failed:\n" + err.message);
-        console.error(err);
-      }
-    }
-
-    // Render loop
-    engine.runRenderLoop(() => scene.render());
-    window.addEventListener("resize", () => engine.resize());
-  </script>
+// ----- Render -----
+engine.runRenderLoop(()=>scene.render());
+window.addEventListener("resize",()=>engine.resize());
+</script>
 </body>
 </html>
