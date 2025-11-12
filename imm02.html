@@ -1,127 +1,71 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>VR Box Collector Game</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.babylonjs.com/babylon.js"></script>
-    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-    <style>
-        body { margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; }
-        #renderCanvas { width: 100%; height: 100%; display: block; }
-        #ui {
-            position: absolute;
-            top: 20px; left: 20px;
-            background: rgba(0,0,0,0.7);
-            color: white; padding: 15px;
-            border-radius: 10px; z-index: 10;
-        }
-        #gameUI {
-            position: absolute; bottom: 20px;
-            width: 100%; text-align: center; z-index: 10;
-        }
-        button {
-            padding: 12px 24px; background: #4CAF50;
-            color: white; border: none; border-radius: 8px;
-            font-size: 16px; margin: 5px; cursor: pointer;
-        }
-        .progress {
-            width: 200px; height: 20px;
-            background: #333; border-radius: 10px;
-            margin: 10px auto; overflow: hidden;
-        }
-        .progress-bar {
-            height: 100%; width: 0%;
-            background: #4CAF50; transition: width 0.3s;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>Babylon.js VR Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <style>
+    html, body { width:100%; height:100%; margin:0; overflow:hidden; background:black; }
+    #renderCanvas { width:100%; height:100%; touch-action:none; display:block; }
+    #ui {
+      position:absolute; top:20px; left:20px;
+      background:rgba(0,0,0,0.7); color:white;
+      padding:10px; border-radius:8px;
+    }
+    button { margin-top:10px; padding:10px 20px; border:none; background:#4CAF50; color:white; border-radius:5px; cursor:pointer; }
+  </style>
 </head>
 <body>
-<canvas id="renderCanvas"></canvas>
+  <canvas id="renderCanvas"></canvas>
+  <div id="ui">
+    <div>✅ Babylon.js VR Test</div>
+    <button id="vrButton">Enter VR</button>
+  </div>
 
-<div id="ui">
-    <h2>🎯 Box Collector</h2>
-    <div>Boxes Collected: <span id="score">0</span>/10</div>
-    <div>Time: <span id="timer">60</span>s</div>
-    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
-</div>
+  <script>
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true);
+    const scene = new BABYLON.Scene(engine);
 
-<div id="gameUI">
-    <button onclick="startGame()">🚀 Start Game</button>
-    <button onclick="enterVR()">🕶️ VR Mode</button>
-</div>
+    // Camera
+    const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.6, -5), scene);
+    camera.attachControl(canvas, true);
 
-<script>
-let score = 0, timeLeft = 60, gameActive = false;
-let gameTimer, boxes = [], reticle;
-let xrHelper = null;
+    // Light
+    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-const canvas = document.getElementById('renderCanvas');
-const engine = new BABYLON.Engine(canvas, true);
-const scene = new BABYLON.Scene(engine);
+    // A box
+    const box = BABYLON.MeshBuilder.CreateBox("box", {size:1}, scene);
+    box.position.y = 1;
 
-// Basic camera
-const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.6, -5), scene);
-camera.attachControl(canvas, true);
+    // Ground
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:10, height:10}, scene);
 
-// Lighting
-const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-light.intensity = 0.9;
+    // Animation
+    scene.registerBeforeRender(() => {
+      box.rotation.y += 0.01;
+    });
 
-// Create environment
-function createEnvironment() {
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:30, height:30}, scene);
-    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-    groundMat.diffuseColor = new BABYLON.Color3(0.2,0.4,0.2);
-    ground.material = groundMat;
+    // Start render loop
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener("resize", () => engine.resize());
 
-    const skybox = BABYLON.MeshBuilder.CreateBox("skybox", {size:100}, scene);
-    const skyboxMat = new BABYLON.StandardMaterial("skyboxMat", scene);
-    skyboxMat.backFaceCulling = false;
-    skyboxMat.diffuseColor = new BABYLON.Color3(0.1,0.2,0.4);
-    skybox.material = skyboxMat;
-}
-
-// Reticle (center dot)
-function createReticle() {
-    reticle = BABYLON.MeshBuilder.CreateDisc("reticle", {radius:0.02}, scene);
-    reticle.parent = camera;
-    reticle.position.z = 2;
-    const mat = new BABYLON.StandardMaterial("reticleMat", scene);
-    mat.emissiveColor = new BABYLON.Color3(1,1,1);
-    reticle.material = mat;
-}
-
-// Boxes
-function createBoxes(count=15) {
-    boxes.forEach(b => b.dispose());
-    boxes = [];
-    for (let i=0; i<count; i++) {
-        const box = BABYLON.MeshBuilder.CreateBox("box"+i, {size:0.6}, scene);
-        box.position.x = Math.random()*20 - 10;
-        box.position.z = Math.random()*20 - 10;
-        box.position.y = 1 + Math.random()*2;
-
-        const mat = new BABYLON.StandardMaterial("mat"+i, scene);
-        mat.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
-        box.material = mat;
-
-        boxes.push(box);
-    }
-}
-
-// Game logic
-function startGame() {
-    if (gameActive) return;
-    score = 0; timeLeft = 60; gameActive = true;
-    document.getElementById("score").textContent = score;
-    document.getElementById("timer").textContent = timeLeft;
-    document.getElementById("progressBar").style.width = "0%";
-    document.getElementById("gameUI").style.display = "none";
-
-    createEnvironment();
-    createReticle();
-    createBoxes();
-
-    gameTimer = setInterval((
-
+    // --- VR Setup ---
+    let xrHelper;
+    document.getElementById("vrButton").addEventListener("click", async () => {
+      try {
+        xrHelper = await scene.createDefaultXRExperienceAsync({
+          uiOptions: { sessionMode: "immersive-vr" },
+          optionalFeatures: true
+        });
+        await xrHelper.baseExperience.enterXRAsync("immersive-vr", "local-floor");
+        document.getElementById("ui").innerHTML = "🕶️ VR mode active!";
+      } catch (err) {
+        alert("VR not supported or failed:\n" + err.message);
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
