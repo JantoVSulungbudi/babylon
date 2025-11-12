@@ -1,170 +1,291 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8">
-<title>VR Box Collector Game</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<style>
-  html,body{width:100%;height:100%;margin:0;overflow:hidden;background:black;}
-  #renderCanvas{width:100%;height:100%;display:block;touch-action:none;}
-  #ui{position:absolute;top:20px;left:20px;background:rgba(0,0,0,.7);color:#fff;
-      padding:10px 15px;border-radius:10px;font-family:Arial;z-index:10;}
-  #gameUI{position:absolute;bottom:20px;width:100%;text-align:center;z-index:10;}
-  button{padding:12px 25px;border:none;border-radius:8px;background:#4CAF50;
-         color:white;font-size:16px;cursor:pointer;margin:5px;}
-  .progress{width:200px;height:20px;background:#333;border-radius:10px;
-            margin:10px auto;overflow:hidden;}
-  .progress-bar{height:100%;width:0%;background:#4CAF50;transition:width .3s;}
-</style>
+    <meta charset="utf-8">
+    <title>VR Box Collector - Debug Version</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; }
+        #renderCanvas { width: 100%; height: 100%; }
+        
+        /* Debug Panel */
+        #debugPanel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 10000;
+        }
+        
+        #debugLog {
+            margin-top: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            border-top: 1px solid #333;
+            padding-top: 10px;
+        }
+        
+        .debug-entry {
+            margin: 2px 0;
+            padding: 2px;
+            border-bottom: 1px solid #333;
+        }
+        
+        .error { color: #ff4444; }
+        .warning { color: #ffaa00; }
+        .info { color: #44ff44; }
+    </style>
 </head>
 <body>
-<canvas id="renderCanvas"></canvas>
+    <canvas id="renderCanvas"></canvas>
+    
+    <!-- Debug Panel -->
+    <div id="debugPanel">
+        <h3 style="margin:0; color:white;">🔧 Debug Console</h3>
+        <div>
+            <button onclick="clearDebug()">Clear</button>
+            <button onclick="toggleDebug()">Hide</button>
+            <button onclick="testVR()">Test VR</button>
+        </div>
+        <div id="debugLog"></div>
+    </div>
 
-<div id="ui">
-  <h3>🎯 Box Collector</h3>
-  <div>Boxes: <span id="score">0</span>/10</div>
-  <div>Time: <span id="timer">60</span>s</div>
-  <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
-</div>
+    <!-- Your existing UI -->
+    <div id="ui" style="position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.8); color: white; padding: 15px; border-radius: 10px; z-index: 1000;">
+        <h2>🎯 Box Collector - DEBUG</h2>
+        <div>Boxes: <span id="score">0</span>/10 | Time: <span id="timer">60</span>s</div>
+        <div>VR Mode: <span id="vrStatus">No</span></div>
+        <div>Game Active: <span id="gameStatus">No</span></div>
+    </div>
 
-<div id="gameUI">
-  <button onclick="startGame()">🚀 Start Game</button>
-  <button onclick="enterVR()">🕶️ VR Mode</button>
-</div>
+    <div id="gameUI" style="position: absolute; bottom: 20px; width: 100%; text-align: center;">
+        <button onclick="startGame()">🚀 Start Game</button>
+        <button onclick="enterVR()">🕶️ VR Mode</button>
+    </div>
 
-<script>
-let engine, scene, camera, xrHelper;
-let boxes=[], reticle, score=0, timeLeft=60, timer, gameActive=false;
-
-const canvas=document.getElementById("renderCanvas");
-engine=new BABYLON.Engine(canvas,true);
-scene=new BABYLON.Scene(engine);
-
-// Basic light + camera
-camera=new BABYLON.UniversalCamera("camera",new BABYLON.Vector3(0,1.6,-5),scene);
-camera.attachControl(canvas,true);
-const light=new BABYLON.HemisphericLight("light",new BABYLON.Vector3(0,1,0),scene);
-light.intensity=0.9;
-
-// ----- Environment -----
-function createEnvironment(){
-  const ground=BABYLON.MeshBuilder.CreateGround("ground",{width:30,height:30},scene);
-  const gMat=new BABYLON.StandardMaterial("gMat",scene);
-  gMat.diffuseColor=new BABYLON.Color3(0.2,0.4,0.2);
-  ground.material=gMat;
-
-  const sky=BABYLON.MeshBuilder.CreateBox("sky",{size:100},scene);
-  const sMat=new BABYLON.StandardMaterial("sMat",scene);
-  sMat.backFaceCulling=false;
-  sMat.diffuseColor=new BABYLON.Color3(0.1,0.2,0.4);
-  sky.material=sMat;
-}
-
-// ----- Reticle -----
-function createReticle(parentCam){
-  if(reticle) reticle.dispose();
-  reticle=BABYLON.MeshBuilder.CreateDisc("reticle",{radius:0.02},scene);
-  reticle.parent=parentCam;
-  reticle.position.z=2;
-  const mat=new BABYLON.StandardMaterial("retMat",scene);
-  mat.emissiveColor=new BABYLON.Color3(1,1,1);
-  reticle.material=mat;
-}
-
-// ----- Boxes -----
-function createBoxes(n=15){
-  boxes.forEach(b=>b.dispose());
-  boxes=[];
-  for(let i=0;i<n;i++){
-    const box=BABYLON.MeshBuilder.CreateBox("box"+i,{size:0.6},scene);
-    box.position.x=Math.random()*20-10;
-    box.position.z=Math.random()*20-10;
-    box.position.y=1+Math.random()*2;
-    const mat=new BABYLON.StandardMaterial("mat"+i,scene);
-    mat.diffuseColor=new BABYLON.Color3(Math.random(),Math.random(),Math.random());
-    box.material=mat;
-    scene.registerBeforeRender(()=>{ if(box.isEnabled()) box.rotation.y+=0.02; });
-    boxes.push(box);
-  }
-}
-
-// ----- Game Logic -----
-function startGame(){
-  if(gameActive) return;
-  score=0; timeLeft=60; gameActive=true;
-  document.getElementById("score").textContent=score;
-  document.getElementById("timer").textContent=timeLeft;
-  document.getElementById("progressBar").style.width="0%";
-  document.getElementById("gameUI").style.display="none";
-
-  createEnvironment();
-  createReticle(camera);
-  createBoxes();
-
-  timer=setInterval(()=>{
-    timeLeft--;
-    document.getElementById("timer").textContent=timeLeft;
-    if(timeLeft<=0) endGame(false);
-  },1000);
-
-  scene.onBeforeRenderObservable.add(checkHit);
-}
-
-function checkHit(){
-  if(!gameActive) return;
-  const ray=new BABYLON.Ray(camera.position,camera.getDirection(BABYLON.Vector3.Forward()));
-  const hit=scene.pickWithRay(ray);
-  if(hit&&hit.pickedMesh&&boxes.includes(hit.pickedMesh)){
-    collectBox(hit.pickedMesh);
-  }
-}
-
-function collectBox(box){
-  if(!box.isEnabled()) return;
-  box.setEnabled(false);
-  score++;
-  document.getElementById("score").textContent=score;
-  document.getElementById("progressBar").style.width=(score*10)+"%";
-  if(score>=10) endGame(true);
-}
-
-function endGame(won){
-  clearInterval(timer);
-  gameActive=false;
-  alert(won?"🎉 You win!":"⏰ Time’s up!");
-  document.getElementById("gameUI").style.display="block";
-}
-
-// ----- Enter VR -----
-async function enterVR(){
-  try{
-    // Create helper once
-    if(!xrHelper){
-      xrHelper=await scene.createDefaultXRExperienceAsync({
-        uiOptions:{sessionMode:"immersive-vr"},
-        optionalFeatures:true
-      });
-
-      // When XR camera is ready, rebuild reticle to attach to it
-      xrHelper.baseExperience.onStateChangedObservable.add(state=>{
-        if(state===BABYLON.WebXRState.IN_XR){
-          createReticle(xrHelper.baseExperience.camera);
+    <script>
+        // ==================== DEBUG FUNCTIONS ====================
+        let debugEnabled = true;
+        
+        function debugLog(message, type = 'info') {
+            if (!debugEnabled) return;
+            
+            const debugLog = document.getElementById('debugLog');
+            const entry = document.createElement('div');
+            entry.className = debug-entry ${type};
+            entry.innerHTML = [${new Date().toLocaleTimeString()}] ${message};
+            debugLog.appendChild(entry);
+            debugLog.scrollTop = debugLog.scrollHeight;
+            
+            console.log([DEBUG] ${message});
         }
-      });
-    }
-    await xrHelper.baseExperience.enterXRAsync("immersive-vr","local-floor");
-    document.getElementById("gameUI").innerHTML=
-      '<div style="color:white;background:rgba(0,0,0,0.6);padding:10px;border-radius:5px;">🕶️ VR Mode Active</div>';
-  }catch(err){
-    alert("VR failed:\n"+err.message);
-    console.error(err);
-  }
-}
+        
+        function clearDebug() {
+            document.getElementById('debugLog').innerHTML = '';
+        }
+        
+        function toggleDebug() {
+            const panel = document.getElementById('debugPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function testVR() {
+            debugLog('Testing VR support...', 'info');
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-vr')
+                    .then(supported => {
+                        debugLog(VR supported: ${supported}, supported ? 'info' : 'warning');
+                    })
+                    .catch(err => {
+                        debugLog(VR test error: ${err.message}, 'error');
+                    });
+            } else {
+                debugLog('WebXR not available', 'error');
+            }
+        }
+        
+        // ==================== GAME CODE ====================
+        // Game variables
+        let score = 0;
+        let timeLeft = 60;
+        let gameActive = false;
+        let gameTimer;
+        let boxes = [];
+        let reticle;
+        let vrMode = false;
+        let xrExperience = null;
+        let currentTargetedBox = null;
+        let gazeTimer = null;
 
-// ----- Render -----
-engine.runRenderLoop(()=>scene.render());
-window.addEventListener("resize",()=>engine.resize());
-</script>
+        const canvas = document.getElementById('renderCanvas');
+        const engine = new BABYLON.Engine(canvas, true);
+        const scene = new BABYLON.Scene(engine);
+        
+        // Enable scene debug layer
+        scene.debugLayer.show().catch(err => {
+            debugLog('Debug layer failed: ' + err.message, 'warning');
+        });
+        
+        // Create camera
+        const camera = new BABYLON.UniversalCamera('camera', new BABYLON.Vector3(0, 1.6, 0), scene);
+        camera.attachControl(canvas, true);
+        
+        // Create lighting
+        const light = new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene);
+        light.intensity = 0.8;
+
+        debugLog('Babylon.js scene initialized', 'info');
+
+        // [REST OF YOUR GAME CODE GOES HERE - copy all the functions from previous version]
+        // createEnvironment(), createVRReticle(), createBoxes(), etc.
+        
+        // Modified startGame with debug info
+        function startGame() {
+            if (gameActive) return;
+            
+            debugLog('Starting game...', 'info');
+            
+            // Reset game state
+            score = 0;
+            timeLeft = 60;
+            gameActive = true;
+            
+            document.getElementById('score').textContent = score;
+            document.getElementById('timer').textContent = timeLeft;
+            document.getElementById('gameStatus').textContent = 'Yes';
+            document.getElementById('gameUI').style.display = 'none';
+            
+            try {
+                // Create game elements
+                createEnvironment();
+                if (vrMode) {
+                    createVRReticle();
+                } else {
+                    createRegularReticle();
+                }
+                createBoxes(15);
+                
+                debugLog('Game environment created', 'info');
+                
+                // Start timer
+                gameTimer = setInterval(() => {
+                    timeLeft--;
+                    document.getElementById('timer').textContent = timeLeft;
+                    
+                    if (timeLeft <= 0) {
+                        endGame(false);
+                    }
+                }, 1000);
+
+                // Start game loop
+                scene.onBeforeRenderObservable.add(gameLoop);
+                debugLog('Game loop started', 'info');
+                
+            } catch (error) {
+                debugLog('Game start error: ' + error.message, 'error');
+                console.error(error);
+            }
+        }
+
+        // Modified enterVR with debug info
+        async function enterVR() {
+            if (vrMode) return;
+            
+            debugLog('Entering VR mode...', 'info');
+            
+            try {
+                if (boxes.length === 0) {
+                    createEnvironment();
+                    createBoxes(15);
+                }
+                
+                createVRReticle();
+                
+                xrExperience = await scene.createDefaultXRExperienceAsync({
+                    uiOptions: {
+                        sessionMode: 'immersive-vr'
+                    }
+                });
+                
+                vrMode = true;
+                document.getElementById('vrStatus').textContent = 'Yes';
+                document.getElementById('gameUI').innerHTML = '<div style="color:white;background:rgba(0,0,0,0.7);padding:10px;border-radius:5px;">VR Mode Active! Look at boxes to collect them</div>';
+                
+                debugLog('VR experience created successfully', 'info');
+                
+                // Set up VR event debugging
+                xrExperience.baseExperience.sessionManager.onXRSessionInit.add(() => {
+                    debugLog('XR Session initialized', 'info');
+                });
+                
+                xrExperience.baseExperience.sessionManager.onXRSessionEnded.add(() => {
+                    debugLog('XR Session ended', 'info');
+                    vrMode = false;
+                    document.getElementById('vrStatus').textContent = 'No';
+                });
+                
+                if (xrExperience.baseExperience.input) {
+                    xrExperience.baseExperience.input.onSelectObservable.add(() => {
+                        debugLog('VR controller select event', 'info');
+                    });
+                }
+                
+            } catch (error) {
+                debugLog('VR failed: ' + error.message, 'error');
+                console.error('VR Error:', error);
+            }
+        }
+
+        // Add error handling to game loop
+        function gameLoop() {
+            if (!gameActive) return;
+            
+            try {
+                updateBoxAnimations();
+                handleGazeCollection();
+            } catch (error) {
+                debugLog('Game loop error: ' + error.message, 'error');
+                console.error('Game loop error:', error);
+            }
+        }
+
+        // Render loop with error handling
+        engine.runRenderLoop(() => {
+            try {
+                scene.render();
+            } catch (error) {
+                debugLog('Render error: ' + error.message, 'error');
+                console.error('Render error:', error);
+            }
+        });
+        
+        window.addEventListener('resize', () => engine.resize());
+
+        // Initial debug info
+        debugLog('Game loaded successfully', 'info');
+        debugLog('WebXR available: ' + !!navigator.xr, 'info');
+        
+        // Test WebXR support
+        if (navigator.xr) {
+            navigator.xr.isSessionSupported('immersive-vr')
+                .then(supported => {
+                    debugLog('VR support test: ' + supported, supported ? 'info' : 'warning');
+                });
+        }
+
+        // [COPY ALL YOUR OTHER GAME FUNCTIONS HERE]
+        // createEnvironment, createVRReticle, createRegularReticle, createBoxes, 
+        // updateBoxAnimations, checkReticleHit, handleGazeCollection, collectBox, endGame
+
+    </script>
 </body>
 </html>
